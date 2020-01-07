@@ -211,6 +211,20 @@ class Boxes:
         keep = (widths > threshold) & (heights > threshold)
         return keep
 
+    def unique_boxes(self, scale=1.0):
+        """
+        Return indices of unique boxes.
+
+        Returns:
+            np.Array:
+                a indice vector which represents indices of unique boxes.
+        """
+        boxes = self.tensor.data.numpy()
+        v = np.array([1, 1e3, 1e6, 1e9])
+        hashes = np.round(boxes * scale).dot(v).astype(np.int)
+        _, index = np.unique(hashes, return_index=True)
+        return np.sort(index)
+
     def __getitem__(self, item):
         """
         Args:

@@ -1,0 +1,18 @@
+_BASE_: "../Base-RCNN-DilatedC5.yaml"
+DATASETS:
+  TRAIN: ('voc_2007_train', 'voc_2007_val')
+  PROPOSAL_FILES_TRAIN: ('datasets/proposals/mcg_voc_2007_train_d2.pkl', 'datasets/proposals/mcg_voc_2007_val_d2.pkl')
+  #PROPOSAL_FILES_TRAIN: ('datasets/proposals/ss_voc_2007_train_d2.pkl', 'datasets/proposals/ss_voc_2007_val_d2.pkl')
+  #TRAIN: ('voc_2012_train', 'voc_2012_val')
+  #PROPOSAL_FILES_TRAIN: ('datasets/proposals/mcg_voc_2012_train_d2.pkl', 'datasets/proposals/mcg_voc_2012_val_d2.pkl')
+  #PROPOSAL_FILES_TRAIN: ('datasets/proposals/ss_voc_2012_train_d2.pkl', 'datasets/proposals/ss_voc_2012_val_d2.pkl')
+  PRECOMPUTED_PROPOSAL_TOPK_TRAIN: 4000
+  TEST: ('voc_2007_test',)
+  PROPOSAL_FILES_TEST: ('datasets/proposals/mcg_voc_2007_test_d2.pkl', )
+  #PROPOSAL_FILES_TEST: ('datasets/proposals/ss_voc_2007_test_d2.pkl', )
+  #TEST: ('voc_2012_test',)
+  #PROPOSAL_FILES_TEST: ('datasets/proposals/mcg_voc_2012_test_d2.pkl', )
+  #PROPOSAL_FILES_TEST: ('datasets/proposals/ss_voc_2012_test_d2.pkl', )
+  #TEST: ('voc_2012_val_instance',)
+  #PROPOSAL_FILES_TEST: ('datasets/proposals/mcg_voc_2012_val_instance_d2.pkl', )
+  PRECOMPUTED_PROPOSAL_TOPK_TEST: 4000

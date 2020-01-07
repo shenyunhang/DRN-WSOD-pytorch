@@ -1,0 +1,3 @@
+_BASE_: "../oicr_R_18_WS_DC5_1x.yaml"
+WSL:
+  HAS_REG: True

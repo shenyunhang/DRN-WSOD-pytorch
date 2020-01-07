@@ -5,6 +5,7 @@ import logging
 import numpy as np
 import os
 import tempfile
+import uuid
 import xml.etree.ElementTree as ET
 from collections import OrderedDict, defaultdict
 from functools import lru_cache
@@ -83,6 +84,23 @@ class PascalVOCDetectionEvaluator(DatasetEvaluator):
             )
         )
 
+        salt = "_{}".format(str(uuid.uuid4()))
+        meta = MetadataCatalog.get(self._dataset_name)
+        year = str(meta.year)
+        devkit_path = os.path.join(meta.dirname, "..")
+        image_set = self._dataset_name.split("_")[-1]
+        res_file_template = "comp3" + salt + "_det_" + image_set + "_{:s}.txt"
+        res_file_template = os.path.join(
+            devkit_path, "results", "VOC" + year, "Main", res_file_template
+        )
+        for cls_id, cls_name in enumerate(self._class_names):
+            lines = predictions.get(cls_id, [""])
+
+            with open(res_file_template.format(cls_name), "w") as f:
+                f.write("\n".join(lines) + "\n")
+
+            self._logger.info("Writing VOC results to " + res_file_template.format(cls_name))
+
         with tempfile.TemporaryDirectory(prefix="pascal_voc_eval_") as dirname:
             res_file_template = os.path.join(dirname, "{}.txt")
 
@@ -104,9 +122,46 @@ class PascalVOCDetectionEvaluator(DatasetEvaluator):
                     )
                     aps[thresh].append(ap * 100)
 
+        results_tex = ""
+        for ap in aps[50]:
+            results_tex += "{:.2f}&".format(ap)
+        results_tex += "{:.2f}&".format(np.mean(aps[50]))
+        self._logger.info("AP50 Results: " + results_tex)
+
         ret = OrderedDict()
         mAP = {iou: np.mean(x) for iou, x in aps.items()}
         ret["bbox"] = {"AP": np.mean(list(mAP.values())), "AP50": mAP[50], "AP75": mAP[75]}
+
+        with tempfile.TemporaryDirectory(prefix="pascal_voc_eval_corloc_") as dirname:
+            res_file_template = os.path.join(dirname, "{}.txt")
+
+            corlocs = defaultdict(list)
+            for cls_id, cls_name in enumerate(self._class_names):
+                lines = predictions.get(cls_id, [""])
+
+                with open(res_file_template.format(cls_name), "w") as f:
+                    f.write("\n".join(lines))
+
+                for thresh in range(50, 100, 5):
+                    corloc = voc_eval_corloc(
+                        res_file_template,
+                        self._anno_file_template,
+                        self._image_set_path,
+                        cls_name,
+                        ovthresh=thresh / 100.0,
+                        use_07_metric=self._is_2007,
+                    )
+                    corlocs[thresh].append(corloc * 100)
+
+        results_tex = ""
+        for corloc in corlocs[50]:
+            results_tex += "{:.2f}&".format(corloc)
+        results_tex += "{:.2f}&".format(np.mean(corlocs[50]))
+        self._logger.info("CorLoc50 Results: " + results_tex)
+
+        mCL = {iou: np.mean(x) for iou, x in corlocs.items()}
+        ret["bbox CorLoc"] = {"CL": np.mean(list(mCL.values())), "CL50": mCL[50], "CL75": mCL[75]}
+
         return ret
 
 
@@ -293,3 +348,214 @@ def voc_eval(detpath, annopath, imagesetfile, classname, ovthresh=0.5, use_07_me
     ap = voc_ap(rec, prec, use_07_metric)
 
     return rec, prec, ap
+
+
+def voc_eval_corloc(detpath, annopath, imagesetfile, classname, ovthresh=0.5, use_07_metric=False):
+    # assumes detections are in detpath.format(classname)
+    # assumes annotations are in annopath.format(imagename)
+    # assumes imagesetfile is a text file with each line an image name
+
+    # first load gt
+    # read list of images
+    with open(imagesetfile, "r") as f:
+        lines = f.readlines()
+    imagenames = [x.strip() for x in lines]
+
+    # load annots
+    recs = {}
+    for i, imagename in enumerate(imagenames):
+        recs[imagename] = parse_rec(annopath.format(imagename))
+
+    # extract gt objects for this class
+    class_recs = {}
+    npos = 0
+    npos_im = 0
+    for imagename in imagenames:
+        R = [obj for obj in recs[imagename] if obj["name"] == classname]
+        bbox = np.array([x["bbox"] for x in R])
+        difficult = np.array([x["difficult"] for x in R]).astype(np.bool)
+        det = [False] * len(R)
+        npos = npos + sum(~difficult)
+        class_recs[imagename] = {"bbox": bbox, "difficult": difficult, "det": det}
+        if len(R) > 0:
+            npos_im += min(1, sum(~difficult))
+
+    # read dets
+    detfile = detpath.format(classname)
+    with open(detfile, "r") as f:
+        lines = f.readlines()
+    if len(lines) == 0:
+        return 0.0
+
+    splitlines = [x.strip().split(" ") for x in lines]
+    image_ids = [x[0] for x in splitlines]
+    confidence = np.array([float(x[1]) for x in splitlines])
+    BB = np.array([[float(z) for z in x[2:]] for x in splitlines]).reshape(-1, 4)
+
+    # sort by confidence
+    sorted_ind = np.argsort(-confidence)
+    BB = BB[sorted_ind, :]
+    image_ids = [image_ids[x] for x in sorted_ind]
+
+    # go down dets and mark TPs and FPs
+    nd = len(image_ids)
+    T = []
+    F = []
+    for d in range(nd):
+        if image_ids[d] in T or image_ids[d] in F:
+            continue
+        R = class_recs[image_ids[d]]
+
+        all_difficult = True
+        for difficult in R["difficult"]:
+            if not difficult:
+                all_difficult = False
+        if all_difficult:
+            continue
+
+        bb = BB[d, :].astype(float)
+        ovmax = -np.inf
+        BBGT = R["bbox"].astype(float)
+
+        if BBGT.size > 0:
+            # compute overlaps
+            # intersection
+            ixmin = np.maximum(BBGT[:, 0], bb[0])
+            iymin = np.maximum(BBGT[:, 1], bb[1])
+            ixmax = np.minimum(BBGT[:, 2], bb[2])
+            iymax = np.minimum(BBGT[:, 3], bb[3])
+            iw = np.maximum(ixmax - ixmin + 1.0, 0.0)
+            ih = np.maximum(iymax - iymin + 1.0, 0.0)
+            inters = iw * ih
+
+            # union
+            uni = (
+                (bb[2] - bb[0] + 1.0) * (bb[3] - bb[1] + 1.0)
+                + (BBGT[:, 2] - BBGT[:, 0] + 1.0) * (BBGT[:, 3] - BBGT[:, 1] + 1.0)
+                - inters
+            )
+
+            overlaps = inters / uni
+            ovmax = np.max(overlaps)
+            # jmax = np.argmax(overlaps)
+
+        if ovmax > ovthresh:
+            T.append(image_ids[d])
+        else:
+            F.append(image_ids[d])
+
+    return 1.0 * len(T) / npos_im
+
+
+def voc_eval_visualization(detpath, annopath, imagesetfile, classname, image_path, output_dir):
+    import cv2
+
+    # assumes detections are in detpath.format(classname)
+    # assumes annotations are in annopath.format(imagename)
+    # assumes imagesetfile is a text file with each line an image name
+    # cachedir caches the annotations in a pickle file
+
+    # first load gt
+    # read list of images
+    with open(imagesetfile, "r") as f:
+        lines = f.readlines()
+    imagenames = [x.strip() for x in lines]
+
+    # load annots
+    recs = {}
+    for i, imagename in enumerate(imagenames):
+        recs[imagename] = parse_rec(annopath.format(imagename))
+
+    # extract gt objects for this class
+    class_recs = {}
+    npos = 0
+    for imagename in imagenames:
+        R = [obj for obj in recs[imagename] if obj["name"] == classname]
+        bbox = np.array([x["bbox"] for x in R])
+        difficult = np.array([x["difficult"] for x in R]).astype(np.bool)
+        det = [False] * len(R)
+        npos = npos + sum(~difficult)
+        class_recs[imagename] = {"bbox": bbox, "difficult": difficult, "det": det}
+
+    # read dets
+    detfile = detpath.format(classname)
+    with open(detfile, "r") as f:
+        lines = f.readlines()
+
+    splitlines = [x.strip().split(" ") for x in lines]
+    image_ids = [x[0] for x in splitlines]
+    confidence = np.array([float(x[1]) for x in splitlines])
+    BB = np.array([[float(z) for z in x[2:]] for x in splitlines])
+
+    # sort by confidence
+    sorted_ind = np.argsort(-confidence)
+    # sorted_scores = np.sort(-confidence)
+    BB = BB[sorted_ind, :]
+    image_ids = [image_ids[x] for x in sorted_ind]
+
+    nd = len(image_ids)
+    T = []
+    F = []
+    for d in range(nd):
+        if image_ids[d] in T or image_ids[d] in F:
+            continue
+        R = class_recs[image_ids[d]]
+
+        all_difficult = True
+        for difficult in R["difficult"]:
+            if not difficult:
+                all_difficult = False
+        if all_difficult:
+            continue
+
+        bb = BB[d, :].astype(float)
+        ovmax = -np.inf
+        BBGT = R["bbox"].astype(float)
+
+        if BBGT.size > 0:
+            # compute overlaps
+            # intersection
+            ixmin = np.maximum(BBGT[:, 0], bb[0])
+            iymin = np.maximum(BBGT[:, 1], bb[1])
+            ixmax = np.minimum(BBGT[:, 2], bb[2])
+            iymax = np.minimum(BBGT[:, 3], bb[3])
+            iw = np.maximum(ixmax - ixmin + 1.0, 0.0)
+            ih = np.maximum(iymax - iymin + 1.0, 0.0)
+            inters = iw * ih
+
+            # union
+            uni = (
+                (bb[2] - bb[0] + 1.0) * (bb[3] - bb[1] + 1.0)
+                + (BBGT[:, 2] - BBGT[:, 0] + 1.0) * (BBGT[:, 3] - BBGT[:, 1] + 1.0)
+                - inters
+            )
+
+            overlaps = inters / uni
+            ovmax = np.max(overlaps)
+            # jmax = np.argmax(overlaps)
+
+        if ovmax > 0.5:
+            T.append(image_ids[d])
+        else:
+            F.append(image_ids[d])
+
+        img = cv2.imread(image_path.format(image_ids[d]))
+
+        for box in BBGT:
+            x1 = int(box[0])
+            y1 = int(box[1])
+            x2 = int(box[2])
+            y2 = int(box[3])
+            img = cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 255), 4)
+
+        x1 = int(bb[0])
+        y1 = int(bb[1])
+        x2 = int(bb[2])
+        y2 = int(bb[3])
+
+        if ovmax > 0.5:
+            img = cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 4)
+        else:
+            img = cv2.rectangle(img, (x1, y1), (x2, y2), (0, 0, 255), 4)
+
+        cv2.imwrite(os.path.join(output_dir, image_ids[d] + ".png"), img)

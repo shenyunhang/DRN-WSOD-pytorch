@@ -15,16 +15,55 @@ from detectron2.data.transforms import (
     ResizeTransform,
     apply_augmentations,
 )
+from detectron2.modeling.roi_heads.fast_rcnn import fast_rcnn_inference_single_image
 from detectron2.structures import Boxes, Instances
 
-from .meta_arch import GeneralizedRCNN
+from .meta_arch import GeneralizedRCNNWSL
 from .postprocessing import detector_postprocess
-from detectron2.modeling.roi_heads.fast_rcnn import fast_rcnn_inference_single_image
 
-__all__ = ["DatasetMapperTTA", "GeneralizedRCNNWithTTA"]
+__all__ = ["DatasetMapperTTAAVG", "GeneralizedRCNNWithTTAAVG"]
 
 
-class DatasetMapperTTA:
+def transform_proposals(dataset_dict, image_shape, transforms, *, proposal_topk, min_box_size=0):
+    """
+    Apply transformations to the proposals in dataset_dict, if any.
+
+    Args:
+        dataset_dict (dict): a dict read from the dataset, possibly
+            contains fields "proposal_boxes", "proposal_objectness_logits", "proposal_bbox_mode"
+        image_shape (tuple): height, width
+        transforms (TransformList):
+        proposal_topk (int): only keep top-K scoring proposals
+        min_box_size (int): proposals with either side smaller than this
+            threshold are removed
+
+    The input dict is modified in-place, with abovementioned keys removed. A new
+    key "proposals" will be added. Its value is an `Instances`
+    object which contains the transformed proposals in its field
+    "proposal_boxes" and "objectness_logits".
+    """
+    boxes = dataset_dict["proposals"].proposal_boxes.tensor.cpu().numpy()
+    boxes = transforms.apply_box(boxes)
+    boxes = Boxes(boxes)
+    objectness_logits = dataset_dict["proposals"].objectness_logits
+
+    boxes.clip(image_shape)
+
+    # keep = boxes.unique_boxes()
+    # boxes = boxes[keep]
+    # objectness_logits = objectness_logits[keep]
+
+    keep = boxes.nonempty(threshold=min_box_size)
+    boxes = boxes[keep]
+    objectness_logits = objectness_logits[keep]
+
+    proposals = Instances(image_shape)
+    proposals.proposal_boxes = boxes[:proposal_topk]
+    proposals.objectness_logits = objectness_logits[:proposal_topk]
+    dataset_dict["proposals"] = proposals
+
+
+class DatasetMapperTTAAVG:
     """
     Implement test-time augmentation for detection data.
     It is a callable which takes a dataset dict from a detection dataset,
@@ -38,6 +77,16 @@ class DatasetMapperTTA:
         self.max_size = cfg.TEST.AUG.MAX_SIZE
         self.flip = cfg.TEST.AUG.FLIP
         self.image_format = cfg.INPUT.FORMAT
+
+        self.proposal_topk = None
+        load_proposals = cfg.MODEL.LOAD_PROPOSALS
+        if load_proposals:
+            is_train = False
+            self.proposal_topk = (
+                cfg.DATASETS.PRECOMPUTED_PROPOSAL_TOPK_TRAIN
+                if is_train
+                else cfg.DATASETS.PRECOMPUTED_PROPOSAL_TOPK_TEST
+            )
 
     def __call__(self, dataset_dict):
         """
@@ -78,17 +127,22 @@ class DatasetMapperTTA:
             dic = copy.deepcopy(dataset_dict)
             dic["transforms"] = pre_tfm + tfms
             dic["image"] = torch_image
+
+            if self.proposal_topk is not None:
+                image_shape = new_image.shape[:2]  # h, w
+                transform_proposals(dic, image_shape, tfms, proposal_topk=self.proposal_topk)
+
             ret.append(dic)
         return ret
 
 
-class GeneralizedRCNNWithTTA(nn.Module):
+class GeneralizedRCNNWithTTAAVG(nn.Module):
     """
     A GeneralizedRCNN with test-time augmentation enabled.
     Its :meth:`__call__` method has the same interface as :meth:`GeneralizedRCNN.forward`.
     """
 
-    def __init__(self, cfg, model, tta_mapper=None, batch_size=3):
+    def __init__(self, cfg, model, tta_mapper=None, batch_size=1):
         """
         Args:
             cfg (CfgNode):
@@ -102,18 +156,18 @@ class GeneralizedRCNNWithTTA(nn.Module):
         if isinstance(model, DistributedDataParallel):
             model = model.module
         assert isinstance(
-            model, GeneralizedRCNN
-        ), "TTA is only supported on GeneralizedRCNN. Got a model of type {}".format(type(model))
+            model, GeneralizedRCNNWSL
+        ), "TTA is only supported on GeneralizedRCNNWSL. Got a model of type {}".format(type(model))
         self.cfg = cfg.clone()
         assert not self.cfg.MODEL.KEYPOINT_ON, "TTA for keypoint is not supported yet"
         assert (
-            not self.cfg.MODEL.LOAD_PROPOSALS
+            not self.cfg.MODEL.LOAD_PROPOSALS or True
         ), "TTA for pre-computed proposals is not supported yet"
 
         self.model = model
 
         if tta_mapper is None:
-            tta_mapper = DatasetMapperTTA(cfg)
+            tta_mapper = DatasetMapperTTAAVG(cfg)
         self.tta_mapper = tta_mapper
         self.batch_size = batch_size
 
@@ -154,20 +208,21 @@ class GeneralizedRCNNWithTTA(nn.Module):
             detected_instances = [None] * len(batched_inputs)
 
         outputs = []
+        all_scores = []
+        all_boxes = []
         inputs, instances = [], []
         for idx, input, instance in zip(count(), batched_inputs, detected_instances):
             inputs.append(input)
             instances.append(instance)
             if len(inputs) == self.batch_size or idx == len(batched_inputs) - 1:
-                outputs.extend(
-                    self.model.inference(
-                        inputs,
-                        instances if instances[0] is not None else None,
-                        do_postprocess=False,
-                    )
+                output, all_score, all_box = self.model.inference(
+                    inputs, instances if instances[0] is not None else None, do_postprocess=False
                 )
+                outputs.extend(output)
+                all_scores.extend(all_score)
+                all_boxes.extend(all_box)
                 inputs, instances = [], []
-        return outputs
+        return outputs, all_scores, all_boxes
 
     def __call__(self, batched_inputs):
         """
@@ -210,7 +265,7 @@ class GeneralizedRCNNWithTTA(nn.Module):
                 augmented_inputs, merged_instances, tfms
             )
             # run forward on the detected boxes
-            outputs = self._batch_inference(augmented_inputs, augmented_instances)
+            outputs, _, _ = self._batch_inference(augmented_inputs, augmented_instances)
             # Delete now useless variables to avoid being out of memory
             del augmented_inputs, augmented_instances
             # average the predictions
@@ -227,36 +282,38 @@ class GeneralizedRCNNWithTTA(nn.Module):
 
     def _get_augmented_boxes(self, augmented_inputs, tfms):
         # 1: forward with all augmented images
-        outputs = self._batch_inference(augmented_inputs)
-        # 2: union the results
-        all_boxes = []
-        all_scores = []
-        all_classes = []
-        for output, tfm in zip(outputs, tfms):
+        outputs, all_scores, all_boxes = self._batch_inference(augmented_inputs)
+        # 2: average the results
+        for idx, tfm in enumerate(tfms):
             # Need to inverse the transforms on boxes, to obtain results on original image
-            pred_boxes = output.pred_boxes.tensor
-            original_pred_boxes = tfm.inverse().apply_box(pred_boxes.cpu().numpy())
-            all_boxes.append(torch.from_numpy(original_pred_boxes).to(pred_boxes.device))
+            pred_boxes = all_boxes[idx]
+            num_img, num_pred, num_col = pred_boxes.shape
+            assert num_img == 1
+            original_pred_boxes = tfm.inverse().apply_box(
+                pred_boxes.reshape(num_pred * num_col // 4, 4).cpu().numpy()
+            )
+            all_boxes[idx] = (
+                torch.from_numpy(original_pred_boxes)
+                .to(pred_boxes.device)
+                .reshape(1, num_pred, num_col)
+            )
 
-            all_scores.extend(output.scores)
-            all_classes.extend(output.pred_classes)
         all_boxes = torch.cat(all_boxes, dim=0)
-        return all_boxes, all_scores, all_classes
+        all_boxes = torch.mean(all_boxes, dim=0, keepdim=False)
+
+        all_scores = torch.cat(all_scores, dim=0)
+        all_scores = torch.mean(all_scores, dim=0, keepdim=False)
+
+        return all_boxes, all_scores, None
 
     def _merge_detections(self, all_boxes, all_scores, all_classes, shape_hw):
-        # select from the union of all results
-        num_boxes = len(all_boxes)
-        num_classes = self.cfg.MODEL.ROI_HEADS.NUM_CLASSES
-        # +1 because fast_rcnn_inference expects background scores as well
-        all_scores_2d = torch.zeros(num_boxes, num_classes + 1, device=all_boxes.device)
-        for idx, cls, score in zip(count(), all_classes, all_scores):
-            all_scores_2d[idx, cls] = score
+        all_scores_2d = all_scores
 
         merged_instances, _ = fast_rcnn_inference_single_image(
             all_boxes,
             all_scores_2d,
             shape_hw,
-            1e-8,
+            self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST,
             self.cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST,
             self.cfg.TEST.DETECTIONS_PER_IMAGE,
         )

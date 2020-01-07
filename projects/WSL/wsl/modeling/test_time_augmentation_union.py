@@ -15,16 +15,16 @@ from detectron2.data.transforms import (
     ResizeTransform,
     apply_augmentations,
 )
+from detectron2.modeling.roi_heads.fast_rcnn import fast_rcnn_inference_single_image
 from detectron2.structures import Boxes, Instances
 
-from .meta_arch import GeneralizedRCNN
+from .meta_arch import GeneralizedRCNNWSL
 from .postprocessing import detector_postprocess
-from detectron2.modeling.roi_heads.fast_rcnn import fast_rcnn_inference_single_image
 
-__all__ = ["DatasetMapperTTA", "GeneralizedRCNNWithTTA"]
+__all__ = ["DatasetMapperTTAUNION", "GeneralizedRCNNWithTTAUNION"]
 
 
-class DatasetMapperTTA:
+class DatasetMapperTTAUNION:
     """
     Implement test-time augmentation for detection data.
     It is a callable which takes a dataset dict from a detection dataset,
@@ -82,13 +82,13 @@ class DatasetMapperTTA:
         return ret
 
 
-class GeneralizedRCNNWithTTA(nn.Module):
+class GeneralizedRCNNWithTTAUNION(nn.Module):
     """
     A GeneralizedRCNN with test-time augmentation enabled.
     Its :meth:`__call__` method has the same interface as :meth:`GeneralizedRCNN.forward`.
     """
 
-    def __init__(self, cfg, model, tta_mapper=None, batch_size=3):
+    def __init__(self, cfg, model, tta_mapper=None, batch_size=1):
         """
         Args:
             cfg (CfgNode):
@@ -102,18 +102,18 @@ class GeneralizedRCNNWithTTA(nn.Module):
         if isinstance(model, DistributedDataParallel):
             model = model.module
         assert isinstance(
-            model, GeneralizedRCNN
-        ), "TTA is only supported on GeneralizedRCNN. Got a model of type {}".format(type(model))
+            model, GeneralizedRCNNWSL
+        ), "TTA is only supported on GeneralizedRCNNWSL. Got a model of type {}".format(type(model))
         self.cfg = cfg.clone()
         assert not self.cfg.MODEL.KEYPOINT_ON, "TTA for keypoint is not supported yet"
         assert (
-            not self.cfg.MODEL.LOAD_PROPOSALS
+            not self.cfg.MODEL.LOAD_PROPOSALS or True
         ), "TTA for pre-computed proposals is not supported yet"
 
         self.model = model
 
         if tta_mapper is None:
-            tta_mapper = DatasetMapperTTA(cfg)
+            tta_mapper = DatasetMapperTTAUNION(cfg)
         self.tta_mapper = tta_mapper
         self.batch_size = batch_size
 
@@ -164,7 +164,7 @@ class GeneralizedRCNNWithTTA(nn.Module):
                         inputs,
                         instances if instances[0] is not None else None,
                         do_postprocess=False,
-                    )
+                    )[0]
                 )
                 inputs, instances = [], []
         return outputs

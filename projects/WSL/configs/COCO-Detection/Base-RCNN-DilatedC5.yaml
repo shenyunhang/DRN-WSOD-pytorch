@@ -1,0 +1,12 @@
+_BASE_: "../Base-RCNN-DilatedC5.yaml"
+DATASETS:
+  TRAIN: ('coco_2014_train', 'coco_2014_valminusminival')
+  PROPOSAL_FILES_TRAIN: ('datasets/proposals/mcg_coco_2014_train_d2.pkl', 'datasets/proposals/mcg_coco_2014_valminusminival_d2.pkl')
+  PRECOMPUTED_PROPOSAL_TOPK_TRAIN: 4000
+  TEST: ('coco_2014_minival',)
+  PROPOSAL_FILES_TEST: ('datasets/proposals/mcg_coco_2014_minival_d2.pkl', )
+  PRECOMPUTED_PROPOSAL_TOPK_TEST: 4000
+TEST:
+  EVAL_TRAIN: False
+DATALOADER:
+  NUM_WORKERS: 2

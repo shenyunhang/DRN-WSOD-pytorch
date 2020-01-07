@@ -1,0 +1,3 @@
+[submodule "projects/WSL/wsl/layers/csrc/crf/densecrf"]
+	path = projects/WSL/wsl/layers/csrc/crf/densecrf
+	url = https://github.com/shenyunhang/densecrf.git

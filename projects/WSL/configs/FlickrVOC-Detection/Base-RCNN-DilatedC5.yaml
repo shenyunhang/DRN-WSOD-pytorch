@@ -1,0 +1,10 @@
+_BASE_: "../Base-RCNN-DilatedC5.yaml"
+DATASETS:
+  TRAIN: ('flickr_voc', )
+  PROPOSAL_FILES_TRAIN: ('datasets/flickr_voc/mcg_d2.pkl', )
+  PRECOMPUTED_PROPOSAL_TOPK_TRAIN: 4000
+  TEST: ('voc_2007_test',)
+  PROPOSAL_FILES_TEST: ('datasets/proposals/mcg_voc_2007_test_d2.pkl', )
+  PRECOMPUTED_PROPOSAL_TOPK_TEST: 4000
+TEST:
+  EVAL_TRAIN: False

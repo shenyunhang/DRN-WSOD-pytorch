@@ -6,6 +6,7 @@ import os
 import xml.etree.ElementTree as ET
 from typing import List, Tuple, Union
 from fvcore.common.file_io import PathManager
+from PIL import Image
 
 from detectron2.data import DatasetCatalog, MetadataCatalog
 from detectron2.structures import BoxMode
@@ -41,6 +42,15 @@ def load_voc_instances(dirname: str, split: str, class_names: Union[List[str], T
         anno_file = os.path.join(annotation_dirname, fileid + ".xml")
         jpeg_file = os.path.join(dirname, "JPEGImages", fileid + ".jpg")
 
+        if not os.path.isfile(anno_file):
+            with Image.open(jpeg_file) as img:
+                width, height = img.size
+            r = {"file_name": jpeg_file, "image_id": fileid, "height": height, "width": width}
+            instances = []
+            r["annotations"] = instances
+            dicts.append(r)
+            continue
+
         with PathManager.open(anno_file) as f:
             tree = ET.parse(f)
 
@@ -56,9 +66,9 @@ def load_voc_instances(dirname: str, split: str, class_names: Union[List[str], T
             cls = obj.find("name").text
             # We include "difficult" samples in training.
             # Based on limited experiments, they don't hurt accuracy.
-            # difficult = int(obj.find("difficult").text)
-            # if difficult == 1:
-            # continue
+            difficult = int(obj.find("difficult").text)
+            if difficult == 1:
+                continue
             bbox = obj.find("bndbox")
             bbox = [float(bbox.find(x).text) for x in ["xmin", "ymin", "xmax", "ymax"]]
             # Original annotations are integers in the range [1, W or H]

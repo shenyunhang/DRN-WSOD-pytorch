@@ -49,12 +49,12 @@ Please follow [this](https://github.com/shenyunhang/DRN-WSOD-pytorch/blob/DRN-WS
 Download MCG proposal from [here](https://www2.eecs.berkeley.edu/Research/Projects/CS/vision/grouping/mcg/) to detectron/datasets/data, and transform it to pickle serialization format:
 
 ```
-cd detectron/datasets/data
+cd datasets/proposals
 tar xvzf MCG-Pascal-Main_trainvaltest_2007-boxes.tgz
-cd ../../../
-python3 tools/convert_mcg.py voc_2007_train detectron/datasets/data/MCG-Pascal-Main_trainvaltest_2007-boxes detectron/datasets/data/proposals/mcg_voc_2007_train.pkl
-python3 tools/convert_mcg.py voc_2007_val detectron/datasets/data/MCG-Pascal-Main_trainvaltest_2007-boxes detectron/datasets/data/proposals/mcg_voc_2007_val.pkl
-python3 tools/convert_mcg.py voc_2007_test detectron/datasets/data/MCG-Pascal-Main_trainvaltest_2007-boxes detectron/datasets/data/proposals/mcg_voc_2007_test.pkl
+cd ../../
+python3 projects/WSL/tools/proposal_convert.py voc_2007_train datasets/proposals/MCG-Pascal-Main_trainvaltest_2007-boxes datasets/proposals/mcg_voc_2007_train_d2.pkl
+python3 projects/WSL/tools/proposal_convert.py voc_2007_val datasets/proposals/MCG-Pascal-Main_trainvaltest_2007-boxes datasets/proposals/mcg_voc_2007_val_d2.pkl
+python3 projects/WSL/tools/proposal_convert.py voc_2007_test datasets/proposals/MCG-Pascal-Main_trainvaltest_2007-boxes datasets/proposals/mcg_voc_2007_test_d2.pkl
 ```
 
 
@@ -81,88 +81,88 @@ DRN-WSOD
 
 ### WSDDN
 
-ResNet18-WS
+#### ResNet18-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/wsddn_WSR_18_DC5_1x.yaml OUTPUT_DIR output/wsddn_WSR_18_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet50-WS
+#### ResNet50-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/wsddn_WSR_50_DC5_1x.yaml OUTPUT_DIR output/wsddn_WSR_50_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet101-WS
+#### ResNet101-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/wsddn_WSR_101_DC5_1x.yaml OUTPUT_DIR output/wsddn_WSR_101_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-VGG16
+#### VGG16
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/wsddn_V_16_DC5_1x.yaml OUTPUT_DIR output/wsddn_V_16_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
 ### OICR
 
-ResNet18-WS
+#### ResNet18-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/oicr_WSR_18_DC5_1x.yaml OUTPUT_DIR output/oicr_WSR_18_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet50-WS
+#### ResNet50-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/oicr_WSR_50_DC5_1x.yaml OUTPUT_DIR output/oicr_WSR_50_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet101-WS
+#### ResNet101-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/oicr_WSR_101_DC5_1x.yaml OUTPUT_DIR output/oicr_WSR_101_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-VGG16
+#### VGG16
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/oicr_V_16_DC5_1x.yaml OUTPUT_DIR output/oicr_V_16_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
 ### OICR + Box Regression
 
-ResNet18-WS
+#### ResNet18-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/reg/oicr_WSR_18_DC5_1x.yaml OUTPUT_DIR output/oicr_reg_WSR_18_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet50-WS
+#### ResNet50-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/reg/oicr_WSR_50_DC5_1x.yaml OUTPUT_DIR output/oicr_reg_WSR_50_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet101-WS
+#### ResNet101-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/reg/oicr_WSR_101_DC5_1x.yaml OUTPUT_DIR output/oicr_reg_WSR_101_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-VGG16
+#### VGG16
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/reg/oicr_V_16_DC5_1x.yaml OUTPUT_DIR output/oicr_reg_V_16_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
 ### PCL
 
-ResNet18-WS
+#### ResNet18-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/pcl_WSR_18_DC5_1x.yaml OUTPUT_DIR output/pcl_WSR_18_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet50-WS
+#### ResNet50-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/pcl_WSR_50_DC5_1x.yaml OUTPUT_DIR output/pcl_WSR_50_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-ResNet101-WS
+#### ResNet101-WS
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/pcl_WSR_101_DC5_1x.yaml OUTPUT_DIR output/pcl_WSR_101_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```
 
-VGG16
+#### VGG16
 ```
 python3 projects/WSL/tools/train_net.py --num-gpus 4 --config-file projects/WSL/configs/PascalVOC-Detection/pcl_V_16_DC5_1x.yaml OUTPUT_DIR output/pcl_V_16_DC5_VOC07_`date +'%Y-%m-%d_%H-%M-%S'`
 ```

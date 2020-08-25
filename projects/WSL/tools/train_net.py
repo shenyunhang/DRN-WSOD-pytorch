@@ -182,10 +182,7 @@ class Trainer(DefaultTrainer):
         # In the end of training, run an evaluation with TTA
         # Only support some R-CNN models.
         logger.info("Running inference with test-time augmentation ...")
-        if cfg.WSL.RPN.RPN_ON:
-            model = GeneralizedRCNNWithTTAUNION(cfg, model)
-        else:
-            model = GeneralizedRCNNWithTTAAVG(cfg, model)
+        model = GeneralizedRCNNWithTTAAVG(cfg, model)
         evaluators = [
             cls.build_evaluator(
                 cfg, name, output_folder=os.path.join(cfg.OUTPUT_DIR, "inference_TTA")
